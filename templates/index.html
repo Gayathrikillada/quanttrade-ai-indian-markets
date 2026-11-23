@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NSE / BSE Quant Trading & Live OI Terminal</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans">
+
+  <!-- Top Header Bar -->
+  <header class="border-b border-slate-800 bg-slate-900/90 backdrop-blur px-6 py-4 sticky top-0 z-20">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <div class="flex items-center gap-3">
+          <h1 class="text-xl font-bold tracking-tight text-white">QuantTrade AI</h1>
+          <span id="marketBadge" class="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-medium">
+            Loading...
+          </span>
+        </div>
+        <p class="text-xs text-slate-400 mt-0.5">
+          Intelligent Trading and Risk Analytics | OOS Acc: <span id="modelAcc" class="text-sky-400 font-semibold">--</span>
+        </p>
+      </div>
+
+      <!-- Controls -->
+      <div class="flex flex-wrap items-center gap-3 text-xs">
+        <div class="flex items-center gap-1.5">
+          <label class="text-slate-400">Segment:</label>
+          <select id="segmentSelect" onchange="loadDashboard()" class="bg-slate-800 border border-sky-500/50 rounded px-2.5 py-1.5 text-sky-300 font-semibold">
+            <option value="OPTIONS">Options (F&O)</option>
+            <option value="INTRADAY">Intraday Equity (MIS)</option>
+            <option value="DELIVERY">Swing Equity (CNC)</option>
+          </select>
+        </div>
+
+        <div class="flex items-center gap-1.5">
+          <label class="text-slate-400">Instrument:</label>
+          <select id="instrumentSelect" onchange="loadDashboard()" class="bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5 text-white font-semibold">
+            <option value="NIFTY">NIFTY 50</option>
+          </select>
+        </div>
+
+        <div class="flex items-center gap-1 bg-slate-800/70 border border-slate-700 rounded px-2 py-1">
+          <input
+            id="newStockInput"
+            type="text"
+            placeholder="Add NSE stock (e.g. INFY)"
+            onkeydown="if(event.key==='Enter') addCustomStock()"
+            class="w-36 bg-transparent text-white placeholder-slate-400 focus:outline-none uppercase font-medium"
+          />
+          <button
+            id="addStockBtn"
+            onclick="addCustomStock()"
+            class="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-2 py-0.5 rounded transition"
+          >
+            + Add
+          </button>
+        </div>
+
+        <div class="flex items-center gap-1.5">
+          <label class="text-slate-400">Capital (₹):</label>
+          <input id="capitalInput" type="number" value="50000" step="5000" class="w-24 bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-white font-semibold" />
+        </div>
+
+        <button onclick="loadDashboard()" class="bg-sky-600 hover:bg-sky-500 text-white font-semibold px-3 py-1.5 rounded transition">
+          Refresh Signal
+        </button>
+
+        <button id="retrainBtn" onclick="retrainModel()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold px-3 py-1.5 rounded transition">
+          Retrain Model
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Floating Real-Time OI Overflow Toast Notification -->
+  <div id="overflowToast" class="hidden fixed bottom-5 right-5 z-50 max-w-md bg-slate-900 border-2 border-amber-400 text-slate-100 rounded-xl p-4 shadow-2xl">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-400/40">
+            LIVE OI OVERFLOW ALERT
+          </span>
+          <span id="toastSymbol" class="text-xs font-bold text-white">--</span>
+        </div>
+        <p id="toastMessage" class="text-xs text-slate-200 mt-1.5 leading-relaxed">--</p>
+      </div>
+      <button onclick="document.getElementById('overflowToast').classList.add('hidden')" class="text-slate-400 hover:text-white text-sm font-bold">✕</button>
+    </div>
+  </div>
+
+  <main class="max-w-7xl mx-auto px-6 py-6 space-y-6">
+
+    <!-- LIVE REAL-TIME OPEN INTEREST (OI) & OVERFLOW NOTIFICATION BANNER -->
+    <section id="oiAlertBanner" class="bg-slate-900 border border-sky-500/40 rounded-xl p-4 shadow-lg">
+      <div class="flex flex-wrap items-start justify-between gap-4">
+        <div class="space-y-1.5">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="px-2.5 py-0.5 rounded-md text-xs font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30">
+              LIVE OI FLOW
+            </span>
+            <h2 id="oiBuildupTitle" class="text-sm font-bold text-white">Analyzing Open Interest & Institutional Flow...</h2>
+            <span id="oiSourceTag" class="text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-400">--</span>
+          </div>
+          <p id="oiNotificationText" class="text-xs text-slate-300">--</p>
+          <p id="oiOverflowLine" class="text-xs font-semibold text-amber-300">--</p>
+        </div>
+
+        <!-- Live OI / PCR / Max Pain Pills -->
+        <div class="flex flex-wrap items-center gap-2.5 text-xs">
+          <div class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5">
+            <span class="text-slate-400">PCR:</span>
+            <span id="oiPcrVal" class="font-bold text-emerald-400 ml-1">--</span>
+          </div>
+          <div class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5">
+            <span class="text-slate-400">Call Resistance:</span>
+            <span id="oiMaxCe" class="font-bold text-rose-400 ml-1">--</span>
+          </div>
+          <div class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5">
+            <span class="text-slate-400">Put Support:</span>
+            <span id="oiMaxPe" class="font-bold text-emerald-400 ml-1">--</span>
+          </div>
+          <div class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5">
+            <span class="text-slate-400">Max Pain:</span>
+            <span id="oiMaxPain" class="font-bold text-amber-400 ml-1">--</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 Clean KPI Cards -->
+    <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div class="text-xs text-slate-400 uppercase tracking-wider">Spot Price (<span id="kpiInstLabel">NIFTY</span>)</div>
+        <div class="flex items-baseline gap-2 mt-1">
+          <span id="kpiSpot" class="text-2xl font-bold text-white">--</span>
+          <span id="kpiSpotChg" class="text-xs font-semibold">--</span>
+        </div>
+        <div class="text-[11px] text-slate-400 mt-1">ATM Strike: <span id="kpiAtm" class="text-slate-200 font-semibold">--</span></div>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div class="text-xs text-slate-400 uppercase tracking-wider">India VIX & IV Rank</div>
+        <div class="flex items-baseline gap-2 mt-1">
+          <span id="kpiVix" class="text-2xl font-bold text-amber-400">--</span>
+          <span id="kpiIvRank" class="text-xs text-slate-400">IV Rank: --%</span>
+        </div>
+        <div class="text-[11px] text-slate-400 mt-1">Volatility Regime: <span id="kpiVegaMode" class="text-slate-200 font-semibold">--</span></div>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div class="text-xs text-slate-400 uppercase tracking-wider">Predicted Market Regime</div>
+        <div class="flex items-baseline gap-2 mt-1">
+          <span id="kpiRegime" class="text-lg font-bold text-emerald-400">--</span>
+          <span id="kpiConf" class="text-xs text-sky-400 font-semibold">--%</span>
+        </div>
+        <div class="text-[11px] text-slate-400 mt-1">CE OI: <span id="kpiCeOi" class="text-slate-300">--</span> | PE OI: <span id="kpiPeOi" class="text-slate-300">--</span></div>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div class="text-xs text-slate-400 uppercase tracking-wider">Position Sizing & Risk</div>
+        <div class="flex items-baseline gap-2 mt-1">
+          <span id="kpiLots" class="text-2xl font-bold text-white">--</span>
+          <span id="kpiRisk" class="text-xs text-rose-400 font-semibold">Max Risk: ₹--</span>
+        </div>
+        <div class="text-[11px] text-slate-400 mt-1">Max Reward: <span id="kpiRewardTop" class="text-emerald-400 font-semibold">₹--</span></div>
+      </div>
+    </section>
+
+    <!-- Clean Trade Ticket + Entry/Exit Timings + SHAP Explainability -->
+    <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
+        <div>
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
+            <div>
+              <span class="text-xs uppercase tracking-wider text-slate-400">Recommended Trade Execution Plan</span>
+              <h2 id="strategyTitle" class="text-xl font-bold text-white mt-0.5">--</h2>
+            </div>
+            <button onclick="logPaperTrade()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition">
+              + Log Signal to Paper-Trading Ledger
+            </button>
+          </div>
+
+          <!-- Streamlined Contract Table (Without Raw Greek Clutter) -->
+          <div class="overflow-x-auto mt-4">
+            <table class="w-full text-left text-xs">
+              <thead>
+                <tr class="text-slate-400 border-b border-slate-800">
+                  <th class="py-2">Action</th>
+                  <th class="py-2">Contract</th>
+                  <th class="py-2">Moneyness</th>
+                  <th class="py-2">Entry Price (₹)</th>
+                  <th class="py-2">Quantity</th>
+                </tr>
+              </thead>
+              <tbody id="legsTableBody" class="divide-y divide-slate-800/70"></tbody>
+            </table>
+          </div>
+
+          <!-- EXACT ENTRY & EXIT TIMING SCHEDULE -->
+          <div class="mt-4 bg-slate-950/90 border border-sky-500/30 rounded-xl p-3.5 space-y-2 text-xs">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <span class="font-bold text-sky-400 uppercase tracking-wider">Entry & Exit Timing Schedule (IST)</span>
+              <span id="liveTimingBadge" class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 font-semibold">--</span>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div class="bg-slate-900/90 border border-slate-800 rounded-lg p-2.5">
+                <div class="text-slate-400 font-semibold">When to Enter Trade</div>
+                <div id="entryWindowText" class="text-white font-medium mt-1">--</div>
+              </div>
+              <div class="bg-slate-900/90 border border-slate-800 rounded-lg p-2.5">
+                <div class="text-slate-400 font-semibold">When to Exit / Square-Off</div>
+                <div id="exitWindowText" class="text-white font-medium mt-1">--</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Clean Payoff Metrics Footer -->
+        <div class="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-slate-800 text-xs">
+          <div class="bg-slate-950/70 rounded-lg p-2.5">
+            <div class="text-slate-400">Breakeven / Levels</div>
+            <div id="ticketBreakeven" class="text-sm font-bold text-white mt-0.5">--</div>
+          </div>
+          <div class="bg-slate-950/70 rounded-lg p-2.5">
+            <div class="text-slate-400">Max Defined Risk</div>
+            <div id="ticketMaxRisk" class="text-sm font-bold text-rose-400 mt-0.5">₹--</div>
+          </div>
+          <div class="bg-slate-950/70 rounded-lg p-2.5">
+            <div class="text-slate-400">Max Target Reward</div>
+            <div id="ticketMaxReward" class="text-sm font-bold text-emerald-400 mt-0.5">₹--</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SHAP Feature Attribution -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <h3 class="text-sm font-bold text-white">SHAP Explainable AI Drivers</h3>
+        <p class="text-xs text-slate-400 mb-2">Top indicators driving today's active signal</p>
+        <div id="shapChart" class="w-full h-72"></div>
+      </div>
+    </section>
+
+    <!-- 60-Day Trend Chart + Expiry Payoff Diagram -->
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <h3 class="text-sm font-bold text-white">60-Day Price Trend & EMA (9 / 21) Crossovers</h3>
+        <p class="text-xs text-slate-400 mb-2">Short-term vs. medium-term momentum confirmation</p>
+        <div id="trendChart" class="w-full h-72"></div>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <h3 class="text-sm font-bold text-white">Payoff Diagram (P&L vs. Spot Price)</h3>
+        <p class="text-xs text-slate-400 mb-2">Defined-risk profit and loss zones</p>
+        <div id="payoffChart" class="w-full h-72"></div>
+      </div>
+    </section>
+
+    <!-- SQLite Paper-Trading Ledger -->
+    <section class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <h3 class="text-sm font-bold text-white">Live Paper-Trading Ledger (SQLite)</h3>
+          <p class="text-xs text-slate-400">Forward-testing logbook saved persistently in trades.db</p>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs">
+          <thead>
+            <tr class="text-slate-400 border-b border-slate-800">
+              <th class="py-2">Time (IST)</th>
+              <th class="py-2">Spot Entry</th>
+              <th class="py-2">Regime</th>
+              <th class="py-2">Strategy</th>
+              <th class="py-2">Contracts / Shares</th>
+              <th class="py-2">Conf</th>
+              <th class="py-2">Max Risk</th>
+              <th class="py-2">Status</th>
+            </tr>
+          </thead>
+          <tbody id="ledgerBody" class="divide-y divide-slate-800/70"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    let latestSignalPayload = null;
+
+    async function loadWatchlist(selectSymbol = null) {
+      const res = await fetch("/api/instruments");
+      const items = await res.json();
+      const sel = document.getElementById("instrumentSelect");
+      const current = selectSymbol || sel.value || "NIFTY";
+      sel.innerHTML = items
+        .map(item => `<option value="${item.symbol}">${item.name}</option>`)
+        .join("");
+      sel.value = current;
+    }
+
+    async function addCustomStock() {
+      const input = document.getElementById("newStockInput");
+      const btn = document.getElementById("addStockBtn");
+      const symbol = input.value.trim().toUpperCase().replace(".NS", "");
+      if (!symbol) return;
+
+      btn.disabled = true;
+      btn.textContent = "Checking...";
+      try {
+        const res = await fetch("/api/instruments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbol })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          alert(data.error || "Could not add stock symbol.");
+          return;
+        }
+        input.value = "";
+        await loadWatchlist(data.symbol);
+        await loadDashboard();
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "+ Add";
+      }
+    }
+
+    async function loadDashboard() {
+      const inst = document.getElementById("instrumentSelect").value || "NIFTY";
+      const cap = document.getElementById("capitalInput").value || 50000;
+      const seg = document.getElementById("segmentSelect").value || "OPTIONS";
+
+      const res = await fetch(`/api/signal?instrument=${encodeURIComponent(inst)}&capital=${encodeURIComponent(cap)}&segment=${encodeURIComponent(seg)}`);
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Error loading market signal.");
+        return;
+      }
+
+      latestSignalPayload = data;
+      const rec = data.recommendation;
+      const oi = data.oi_flow;
+      const timing = data.timing;
+
+      // Update Live OI & Overflow Banner + Floating Toast
+      const banner = document.getElementById("oiAlertBanner");
+      banner.className = `bg-slate-900 rounded-xl p-4 shadow-lg border ${
+        oi.flow_tone === "bullish" ? "border-emerald-500/50" :
+        oi.flow_tone === "bearish" ? "border-rose-500/50" : "border-amber-500/50"
+      }`;
+      document.getElementById("oiBuildupTitle").textContent = oi.buildup;
+      document.getElementById("oiSourceTag").textContent = oi.source;
+      document.getElementById("oiNotificationText").textContent = oi.notification;
+      document.getElementById("oiOverflowLine").textContent = oi.overflow_alert;
+      document.getElementById("oiPcrVal").textContent = oi.pcr;
+      document.getElementById("oiMaxCe").textContent = `${oi.max_ce_strike} CE`;
+      document.getElementById("oiMaxPe").textContent = `${oi.max_pe_strike} PE`;
+      document.getElementById("oiMaxPain").textContent = oi.max_pain;
+
+      const toast = document.getElementById("overflowToast");
+      if (oi.overflow_detected) {
+        document.getElementById("toastSymbol").textContent = data.instrument;
+        document.getElementById("toastMessage").textContent = oi.overflow_alert;
+        toast.classList.remove("hidden");
+      } else {
+        toast.classList.add("hidden");
+      }
+
+      // KPIs
+      document.getElementById("marketBadge").textContent = data.market_status;
+      document.getElementById("modelAcc").textContent = `${data.test_accuracy}%`;
+      document.getElementById("kpiInstLabel").textContent = data.instrument;
+      document.getElementById("kpiSpot").textContent = `₹${data.spot.toLocaleString("en-IN")}`;
+      document.getElementById("kpiAtm").textContent = rec.atm_strike;
+
+      const chgEl = document.getElementById("kpiSpotChg");
+      chgEl.textContent = `${data.spot_chg_pct >= 0 ? "+" : ""}${data.spot_chg_pct}%`;
+      chgEl.className = `text-xs font-semibold ${data.spot_chg_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`;
+
+      document.getElementById("kpiVix").textContent = data.vix;
+      document.getElementById("kpiIvRank").textContent = `IV Rank: ${data.iv_rank}%`;
+      document.getElementById("kpiVegaMode").textContent = data.iv_rank >= 60 ? "High IV (Wide Spread)" : "Normal IV";
+
+      const regEl = document.getElementById("kpiRegime");
+      regEl.textContent = rec.regime;
+      regEl.className = `text-lg font-bold ${
+        rec.regime.includes("BULLISH") ? "text-emerald-400" :
+        rec.regime.includes("BEARISH") ? "text-rose-400" : "text-amber-400"
+      }`;
+      document.getElementById("kpiConf").textContent = `${data.confidence}% Conf`;
+      document.getElementById("kpiCeOi").textContent = oi.ce_oi.toLocaleString("en-IN");
+      document.getElementById("kpiPeOi").textContent = oi.pe_oi.toLocaleString("en-IN");
+
+      if (rec.segment === "OPTIONS") {
+        document.getElementById("kpiLots").textContent = `${rec.lots} Lot${rec.lots > 1 ? "s" : ""} (${rec.lot_size} qty)`;
+        document.getElementById("ticketBreakeven").textContent = rec.breakeven;
+      } else {
+        document.getElementById("kpiLots").textContent = `${rec.lots} Shares`;
+        document.getElementById("ticketBreakeven").textContent = `Tgt ₹${rec.target_price} / SL ₹${rec.stop_loss_price}`;
+      }
+      document.getElementById("kpiRisk").textContent = `Max Risk: ₹${rec.max_risk.toLocaleString("en-IN")}`;
+      document.getElementById("kpiRewardTop").textContent = `₹${rec.max_reward.toLocaleString("en-IN")}`;
+
+      // Trade Ticket & Entry/Exit Timings
+      document.getElementById("strategyTitle").textContent = rec.strategy;
+      document.getElementById("ticketMaxRisk").textContent = `₹${rec.max_risk.toLocaleString("en-IN")}`;
+      document.getElementById("ticketMaxReward").textContent = `₹${rec.max_reward.toLocaleString("en-IN")}`;
+      document.getElementById("liveTimingBadge").textContent = timing.live_action;
+      document.getElementById("entryWindowText").textContent = timing.entry_window;
+      document.getElementById("exitWindowText").textContent = timing.exit_window;
+
+      const legsBody = document.getElementById("legsTableBody");
+      if (!rec.legs.length) {
+        legsBody.innerHTML = `<tr><td colspan="5" class="py-3 text-slate-400">Cash preservation recommended for this regime/segment.</td></tr>`;
+      } else {
+        legsBody.innerHTML = rec.legs.map(l => {
+          const badgeStyle =
+            l.moneyness === "ATM" ? "bg-sky-500/20 text-sky-300 border-sky-500/30" :
+            l.moneyness === "ITM" ? "bg-purple-500/20 text-purple-300 border-purple-500/30" :
+            l.moneyness === "CASH" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" :
+                                     "bg-amber-500/20 text-amber-300 border-amber-500/30";
+          const qtyUnit = rec.segment === "OPTIONS" ? `${l.lots} Lot(s)` : `${l.lots} Shares`;
+          return `
+            <tr>
+              <td class="py-2.5 font-bold ${l.action === "BUY" ? "text-emerald-400" : "text-rose-400"}">${l.action}</td>
+              <td class="py-2.5 font-semibold text-white">${l.instrument}</td>
+              <td class="py-2.5"><span class="px-2 py-0.5 rounded border text-[11px] font-bold ${badgeStyle}">${l.moneyness}</span></td>
+              <td class="py-2.5 text-slate-300">₹${l.premium}</td>
+              <td class="py-2.5 text-slate-300 font-semibold">${qtyUnit}</td>
+            </tr>
+          `;
+        }).join("");
+      }
+
+      renderShapChart(data.shap);
+      renderTrendChart(data.chart, data.instrument);
+      renderPayoffChart(rec, data.spot);
+    }
+
+    function renderShapChart(shap) {
+      const features = shap.map(s => s.feature).reverse();
+      const impacts = shap.map(s => s.impact).reverse();
+      const colors = impacts.map(v => v >= 0 ? "#10b981" : "#f43f5e");
+
+      Plotly.newPlot("shapChart", [{
+        type: "bar",
+        orientation: "h",
+        x: impacts,
+        y: features,
+        marker: { color: colors }
+      }], {
+        paper_bgcolor: "rgba(0,0,0,0)",
+        plot_bgcolor: "rgba(0,0,0,0)",
+        font: { color: "#cbd5e1", size: 11 },
+        margin: { l: 115, r: 15, t: 10, b: 25 },
+        xaxis: { gridcolor: "#1e293b", zerolinecolor: "#475569" },
+        yaxis: { gridcolor: "rgba(0,0,0,0)" }
+      }, { displayModeBar: false, responsive: true });
+    }
+
+    function renderTrendChart(chart, symbol) {
+      Plotly.newPlot("trendChart", [
+        { x: chart.dates, y: chart.close, name: `${symbol} Close`, line: { color: "#38bdf8", width: 2 } },
+        { x: chart.dates, y: chart.ema9, name: "EMA 9", line: { color: "#10b981", width: 1.5 } },
+        { x: chart.dates, y: chart.ema21, name: "EMA 21", line: { color: "#f59e0b", width: 1.5 } }
+      ], {
+        paper_bgcolor: "rgba(0,0,0,0)",
+        plot_bgcolor: "rgba(0,0,0,0)",
+        font: { color: "#cbd5e1", size: 11 },
+        margin: { l: 50, r: 15, t: 10, b: 30 },
+        legend: { orientation: "h", y: 1.12 },
+        xaxis: { gridcolor: "#1e293b" },
+        yaxis: { gridcolor: "#1e293b" }
+      }, { displayModeBar: false, responsive: true });
+    }
+
+    function renderPayoffChart(rec, spot) {
+      Plotly.newPlot("payoffChart", [{
+        x: rec.payoff_prices,
+        y: rec.payoff_pnl,
+        type: "scatter",
+        mode: "lines",
+        fill: "tozeroy",
+        line: { color: "#10b981", width: 2.5 },
+        fillcolor: "rgba(16, 185, 129, 0.15)",
+        name: "Payoff P&L (₹)"
+      }], {
+        paper_bgcolor: "rgba(0,0,0,0)",
+        plot_bgcolor: "rgba(0,0,0,0)",
+        font: { color: "#cbd5e1", size: 11 },
+        margin: { l: 55, r: 15, t: 15, b: 35 },
+        shapes: [{
+          type: "line",
+          x0: spot, x1: spot,
+          y0: Math.min(...rec.payoff_pnl), y1: Math.max(...rec.payoff_pnl),
+          line: { color: "#38bdf8", width: 1.5, dash: "dash" }
+        }],
+        xaxis: { title: "Spot Price", gridcolor: "#1e293b" },
+        yaxis: { title: "P&L (₹)", gridcolor: "#1e293b", zerolinecolor: "#64748b" }
+      }, { displayModeBar: false, responsive: true });
+    }
+
+    async function logPaperTrade() {
+      if (!latestSignalPayload) return;
+      const rec = latestSignalPayload.recommendation;
+      await fetch("/api/paper-trade", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          spot: latestSignalPayload.spot,
+          regime: rec.regime,
+          strategy: rec.strategy,
+          legs: rec.legs,
+          confidence: latestSignalPayload.confidence,
+          max_risk: rec.max_risk
+        })
+      });
+      loadLedger();
+    }
+
+    async function loadLedger() {
+      const res = await fetch("/api/paper-trades");
+      const rows = await res.json();
+      const body = document.getElementById("ledgerBody");
+      if (!rows.length) {
+        body.innerHTML = `<tr><td colspan="8" class="py-4 text-center text-slate-500">No paper trades logged yet. Click "+ Log Signal to Paper-Trading Ledger" above.</td></tr>`;
+        return;
+      }
+      body.innerHTML = rows.map(r => `
+        <tr>
+          <td class="py-2.5 text-slate-300">${r.timestamp}</td>
+          <td class="py-2.5 font-semibold text-white">₹${r.spot_entry}</td>
+          <td class="py-2.5 text-sky-400 font-semibold">${r.regime}</td>
+          <td class="py-2.5 text-slate-200">${r.strategy}</td>
+          <td class="py-2.5 text-slate-300">${r.legs}</td>
+          <td class="py-2.5 text-emerald-400 font-semibold">${r.confidence}%</td>
+          <td class="py-2.5 text-rose-400">₹${r.max_risk}</td>
+          <td class="py-2.5"><span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-semibold">${r.status}</span></td>
+        </tr>
+      `).join("");
+    }
+
+    async function retrainModel() {
+      const btn = document.getElementById("retrainBtn");
+      btn.disabled = true;
+      btn.textContent = "Retraining...";
+      try {
+        const res = await fetch("/api/retrain", { method: "POST" });
+        const data = await res.json();
+        alert(`Model retrained successfully! Out-of-Sample Accuracy: ${data.accuracy}%`);
+        loadDashboard();
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Retrain Model";
+      }
+    }
+
+    (async () => {
+      await loadWatchlist("NIFTY");
+      await loadDashboard();
+      await loadLedger();
+    })();
+  </script>
+</body>
+</html>
