@@ -8,3 +8,4 @@ shap
 yfinance
 joblib
 pytz
+gunicorn
